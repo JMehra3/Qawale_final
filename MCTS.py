@@ -24,6 +24,8 @@ class MCTS():
         self.Es = {}  # stores game.getGameEnded ended for board s
         self.Vs = {}  # stores game.getValidMoves for board s
         self.max_depth = 100  # maximum recursion depth
+        self.max_states = 1000000  # maximum number of states to store
+        self.state_queue = []  # queue for state management
 
     def getActionProb(self, canonicalBoard, temp=1):
         """
@@ -86,7 +88,23 @@ class MCTS():
         if depth > self.max_depth:
             return 0  # Return neutral value to stop recursion
             
+        # Get all symmetric board states
         s = self.game.stringRepresentation(canonicalBoard)
+        if s not in self.Ps:
+            # Check if any symmetric state exists in cache
+            sym_states = []
+            if hasattr(self.game, 'getSymmetries'):
+                # Get policy vector placeholder (will be replaced by NN prediction)
+                pi = np.zeros(self.game.getActionSize())
+                # Get all symmetric board states
+                sym_states = self.game.getSymmetries(canonicalBoard, pi)
+                for sym_board, _ in sym_states:
+                    sym_s = self.game.stringRepresentation(sym_board)
+                    if sym_s in self.Ps:
+                        # Use existing symmetric state
+                        s = sym_s
+                        canonicalBoard = sym_board
+                        break
 
         if s not in self.Es:
             self.Es[s] = self.game.getGameEnded(canonicalBoard, 1)
@@ -146,5 +164,18 @@ class MCTS():
             self.Qsa[(s, a)] = v
             self.Nsa[(s, a)] = 1
 
+        # Update statistics for all symmetric states
+        if hasattr(self.game, 'getSymmetries'):
+            pi = np.zeros(self.game.getActionSize())
+            sym_states = self.game.getSymmetries(canonicalBoard, pi)
+            for sym_board, _ in sym_states:
+                sym_s = self.game.stringRepresentation(sym_board)
+                if sym_s in self.Ns:
+                    self.Ns[sym_s] += 1
+                if (sym_s, a) in self.Nsa:
+                    self.Nsa[(sym_s, a)] += 1
+                if (sym_s, a) in self.Qsa:
+                    self.Qsa[(sym_s, a)] = (self.Nsa[(sym_s, a)] * self.Qsa[(sym_s, a)] + v) / (self.Nsa[(sym_s, a)] + 1)
+        
         self.Ns[s] += 1
         return -v
